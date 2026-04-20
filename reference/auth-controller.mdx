@@ -1,0 +1,138 @@
+---
+title: "AuthController: login, dashboard, and logout methods"
+description: "Method reference for AuthController — showLogin, login (with validation rules), dashboard (guard detection), and logout (dual-guard session teardown)."
+---
+
+`AuthController` handles all authentication concerns for MediCitas: rendering the login form, validating credentials against the correct guard, serving the role-aware dashboard, and tearing down sessions on logout. The application supports two distinct user types — `paciente` and `medico` — each backed by its own Laravel auth guard. The `tipo` field submitted at login determines which guard is used for `Auth::guard($guard)->attempt()`, which means a patient's credentials will never match against the `medico` guard and vice versa.
+
+## `showLogin()`
+
+Returns the `auth.login` view. No parameters, no side effects.
+
+```php
+public function showLogin()
+{
+    return view('auth.login');
+}
+```
+
+**Returns:** `Illuminate\View\View` — renders `resources/views/auth/login.blade.php`.
+
+---
+
+## `login(Request $request)`
+
+Validates the submitted credentials, attempts authentication on the guard that matches `tipo`, and either starts a session or returns the user to the form with an error.
+
+```php
+public function login(Request $request)
+{
+    $credentials = $request->validate([
+        'email'    => ['required', 'email'],
+        'password' => ['required'],
+        'tipo'     => ['required', 'in:paciente,medico'],
+    ]);
+
+    $guard = $credentials['tipo']; // 'paciente' or 'medico'
+
+    if (Auth::guard($guard)->attempt([
+        'email'    => $credentials['email'],
+        'password' => $credentials['password'],
+    ])) {
+        $request->session()->regenerate();
+        return redirect()->route('dashboard')->with('success', 'Bienvenido al sistema');
+    }
+
+    return back()->withErrors([
+        'email' => 'Las credenciales no son correctas.',
+    ])->onlyInput('email');
+}
+```
+
+### Request parameters
+
+<ParamField body="email" type="string" required>
+  The user's email address. Must be a valid email format.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's password. Not subject to additional format rules beyond being present.
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  The user type. Must be exactly `paciente` or `medico`. This value selects which auth guard is used for the authentication attempt.
+</ParamField>
+
+### Success path
+
+1. Credentials pass validation.
+2. `Auth::guard($tipo)->attempt()` returns `true`.
+3. Session ID is regenerated to prevent session fixation.
+4. User is redirected to `dashboard` with a `success` flash message: `"Bienvenido al sistema"`.
+
+### Failure path
+
+<Warning>
+If `Auth::guard($tipo)->attempt()` returns `false`, the method calls `back()->withErrors()` and returns the user to the login form. The `email` input is preserved via `onlyInput('email')`. The password is never re-populated. The error message is: `"Las credenciales no son correctas."` — it is attached to the `email` key in the error bag.
+</Warning>
+
+**Returns:** `Illuminate\Http\RedirectResponse` — redirects to `dashboard` on success or back to the form on failure.
+
+---
+
+## `dashboard()`
+
+Determines which guard is currently authenticated, retrieves the corresponding user model, and passes it to the dashboard view.
+
+```php
+public function dashboard()
+{
+    $usuario = Auth::guard('paciente')->user() ?? Auth::guard('medico')->user();
+
+    return view('dashboard', compact('usuario'));
+}
+```
+
+<Note>
+Guard resolution uses a `paciente`-first precedence: `Auth::guard('paciente')->user()` is checked first. If it returns `null`, the method falls back to `Auth::guard('medico')->user()`. Because the `auth:paciente,medico` middleware guarantees one guard is active before this method runs, `$usuario` will never be `null` in a normal request.
+</Note>
+
+### View variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `$usuario` | `Paciente\|Medico` | The authenticated user model resolved from the active guard |
+
+**Returns:** `Illuminate\View\View` — renders `resources/views/dashboard.blade.php`.
+
+---
+
+## `logout(Request $request)`
+
+Logs out of both guards, invalidates the session, regenerates the CSRF token, and redirects to the login form.
+
+```php
+public function logout(Request $request)
+{
+    Auth::guard('paciente')->logout();
+    Auth::guard('medico')->logout();
+
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+
+    return redirect()->route('login.form')->with('success', 'Sesión cerrada correctamente');
+}
+```
+
+### Side effects
+
+1. `Auth::guard('paciente')->logout()` — clears the `paciente` guard session data.
+2. `Auth::guard('medico')->logout()` — clears the `medico` guard session data. Both guards are always cleared regardless of which one was active, preventing stale session state.
+3. `$request->session()->invalidate()` — destroys the session and generates a new session ID.
+4. `$request->session()->regenerateToken()` — issues a new CSRF token for the fresh session.
+
+<Note>
+Both guards are logged out unconditionally on every logout request. This is a deliberate security measure to ensure no residual authenticated state remains if, for example, session data has become inconsistent.
+</Note>
+
+**Returns:** `Illuminate\Http\RedirectResponse` — redirects to `login.form` with a `success` flash message: `"Sesión cerrada correctamente"`.

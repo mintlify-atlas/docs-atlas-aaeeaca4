@@ -1,0 +1,177 @@
+---
+title: "Auth guards: paciente and medico session configuration"
+description: "How MediCitas configures two separate Laravel session guards to authenticate patients and doctors independently against their own database tables."
+---
+
+MediCitas authenticates two distinct user types — patients (`Paciente`) and doctors (`Medico`) — using separate Laravel session guards. Each guard has its own Eloquent provider pointing to a different database table, which means a patient session and a doctor session are completely independent: credentials, session data, and authorization checks never cross over between the two. The default Laravel `web` guard (mapped to the `User` model) is present in the config but is not used in any MediCitas UI route.
+
+## Guards and providers
+
+```php config/auth.php
+<?php
+
+use App\Models\User;
+use App\Models\Paciente;
+use App\Models\Medico;
+
+return [
+
+    'defaults' => [
+        'guard' => env('AUTH_GUARD', 'web'),
+        'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
+    ],
+
+    'guards' => [
+        'web' => [
+            'driver' => 'session',
+            'provider' => 'users',
+        ],
+        'paciente' => [
+            'driver' => 'session',
+            'provider' => 'pacientes',
+        ],
+        'medico' => [
+            'driver' => 'session',
+            'provider' => 'medicos',
+        ],
+    ],
+
+    'providers' => [
+        'users' => [
+            'driver' => 'eloquent',
+            'model' => User::class,
+        ],
+        'pacientes' => [
+            'driver' => 'eloquent',
+            'model' => Paciente::class,
+        ],
+        'medicos' => [
+            'driver' => 'eloquent',
+            'model' => Medico::class,
+        ],
+    ],
+
+];
+```
+
+### Guard summary
+
+| Guard | Driver | Provider | Model | Table |
+|---|---|---|---|---|
+| `web` | session | `users` | `App\Models\User` | `users` (unused) |
+| `paciente` | session | `pacientes` | `App\Models\Paciente` | `pacientes` |
+| `medico` | session | `medicos` | `App\Models\Medico` | `medicos` |
+
+<Note>
+The `web` guard ships with every Laravel application. MediCitas keeps it in place because removing it would break the framework defaults, but no route or middleware in the application refers to it.
+</Note>
+
+## Why two separate guards
+
+Patients and doctors are modeled as entirely different entities with different fields, different relationships, and different permission scopes. Using a single `users` table with a role column would require either a polymorphic structure or nullable columns for fields that only apply to one type. Two guards with two dedicated models keep the tables clean and make guard-level authorization (`Auth::guard('medico')->check()`) explicit and unambiguous.
+
+## Middleware usage
+
+### Protecting authenticated routes
+
+Apply `auth:paciente,medico` to routes that require a logged-in user of either type. Laravel will check each named guard in order and grant access if any one of them has an active session.
+
+```php
+Route::middleware(['auth:paciente,medico'])->group(function () {
+    Route::get('/dashboard', [DashboardController::class, 'index']);
+});
+```
+
+To restrict a route to a single user type, pass only that guard:
+
+```php
+// Only authenticated doctors
+Route::middleware(['auth:medico'])->group(function () {
+    Route::get('/agenda', [AgendaController::class, 'index']);
+});
+
+// Only authenticated patients
+Route::middleware(['auth:paciente'])->group(function () {
+    Route::get('/citas', [CitaController::class, 'index']);
+});
+```
+
+### Redirecting already-authenticated users
+
+Apply `guest:paciente,medico` to login and registration routes. Users who already have an active session in either guard are redirected away from those pages.
+
+```php
+Route::middleware(['guest:paciente,medico'])->group(function () {
+    Route::get('/login', [LoginController::class, 'show']);
+    Route::post('/login', [LoginController::class, 'store']);
+});
+```
+
+## Login: selecting the guard by user type
+
+The login form includes a `tipo` field (value `paciente` or `medico`) that tells `AuthController::login()` which guard to authenticate against. This avoids checking both tables on every login attempt.
+
+```php
+public function login(Request $request)
+{
+    $credentials = $request->validate([
+        'email'    => ['required', 'email'],
+        'password' => ['required'],
+        'tipo'     => ['required', 'in:paciente,medico'],
+    ]);
+
+    $guard = $credentials['tipo']; // 'paciente' or 'medico'
+
+    if (Auth::guard($guard)->attempt([
+        'email'    => $credentials['email'],
+        'password' => $credentials['password'],
+    ])) {
+        $request->session()->regenerate();
+        return redirect()->route('dashboard')->with('success', 'Bienvenido al sistema');
+    }
+
+    return back()->withErrors([
+        'email' => 'Las credenciales no son correctas.',
+    ])->onlyInput('email');
+}
+```
+
+<Tip>
+`Auth::guard($tipo)->attempt()` only queries the table bound to that guard's provider. The `tipo` field is validated against `['in:paciente,medico']` before it is used as the guard name, preventing invalid guard names from reaching `Auth::guard()`.
+</Tip>
+
+## Logout: clearing both guards
+
+Because a browser could theoretically hold sessions for both guards simultaneously (for example, a user who is both a registered patient and a registered doctor), the logout handler in `AuthController::logout()` invalidates both guards explicitly before regenerating the CSRF token.
+
+```php
+public function logout(Request $request)
+{
+    Auth::guard('paciente')->logout();
+    Auth::guard('medico')->logout();
+
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+
+    return redirect()->route('login.form')->with('success', 'Sesión cerrada correctamente');
+}
+```
+
+<Warning>
+Calling `Auth::logout()` without specifying a guard only clears the default `web` guard. Always name both guards explicitly in the MediCitas logout handler, or an active session for one type will survive the logout.
+</Warning>
+
+## Checking the authenticated user
+
+Use `Auth::guard('paciente')->user()` or `Auth::guard('medico')->user()` to retrieve the authenticated model. The helper `auth()->user()` resolves to the default `web` guard and will return `null` in MediCitas because that guard is never used.
+
+```php
+// Correct — returns the authenticated Medico or null
+$medico = Auth::guard('medico')->user();
+
+// Correct — returns the authenticated Paciente or null
+$paciente = Auth::guard('paciente')->user();
+
+// Incorrect in MediCitas — always returns null
+$user = auth()->user();
+```

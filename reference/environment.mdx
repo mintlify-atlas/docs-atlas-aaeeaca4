@@ -1,0 +1,202 @@
+---
+title: "MediCitas .env reference: all environment variables"
+description: "Complete reference for MediCitas .env variables — application identity, database connection, session lifetime, queue/cache drivers, and mail transport."
+---
+
+MediCitas is configured entirely through environment variables loaded from a `.env` file at the project root. Laravel reads this file on every request via the `vlucas/phpdotenv` package and makes the values available through the `env()` helper and the `config()` facade. The `.env.example` file in the repository contains every variable with its default development value — copy it to `.env` and fill in the blanks before running the application for the first time.
+
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+<Note>
+`APP_KEY` is intentionally left blank in `.env.example`. Running `php artisan key:generate` writes a fresh 32-byte base64-encoded key into your `.env` file. The application will refuse to boot without a key set.
+</Note>
+
+---
+
+## Application
+
+These variables control the core runtime behavior of the Laravel framework.
+
+<ParamField query="APP_NAME" type="string" default="Laravel">
+  Human-readable application name. Used in notification emails, the browser tab title, and anywhere `config('app.name')` is referenced. Set this to `MediCitas`.
+</ParamField>
+
+<ParamField query="APP_ENV" type="string" default="local">
+  Runtime environment. Accepted values are `local`, `staging`, and `production`. Laravel uses this to toggle environment-specific behavior such as error detail level and service provider registration.
+</ParamField>
+
+<ParamField query="APP_KEY" type="string" required>
+  32-byte encryption key used to sign cookies, encrypt session data, and protect other sensitive payloads. Generate with `php artisan key:generate`. Never share or commit this value.
+</ParamField>
+
+<ParamField query="APP_DEBUG" type="boolean" default="true">
+  When `true`, Laravel renders full stack traces in the browser on unhandled exceptions. Set to `false` in all non-local environments.
+</ParamField>
+
+<ParamField query="APP_URL" type="string" default="http://localhost">
+  The canonical base URL of the application. Used when generating absolute URLs with `url()` and `route()`. Must include the scheme (`http://` or `https://`).
+</ParamField>
+
+```ini .env — application block
+APP_NAME=MediCitas
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+```
+
+<Warning>
+Before deploying to production, set `APP_ENV=production` and `APP_DEBUG=false`. Leaving `APP_DEBUG=true` in production exposes stack traces, environment variables, and internal file paths to anyone who can trigger an error.
+</Warning>
+
+---
+
+## Database
+
+MediCitas defaults to SQLite for zero-configuration local development. Switch to MySQL (or MariaDB) for staging and production by uncommenting the relevant variables and setting `DB_CONNECTION` accordingly.
+
+<ParamField query="DB_CONNECTION" type="string" default="sqlite">
+  The database driver to use. Corresponds to a connection key in `config/database.php`. Supported values for MediCitas: `sqlite`, `mysql`, `mariadb`.
+</ParamField>
+
+<ParamField query="DB_HOST" type="string" default="127.0.0.1">
+  Hostname or IP address of the database server. Not required when using SQLite.
+</ParamField>
+
+<ParamField query="DB_PORT" type="number" default="3306">
+  TCP port the database server listens on. Defaults to `3306` for MySQL/MariaDB. Not required when using SQLite.
+</ParamField>
+
+<ParamField query="DB_DATABASE" type="string" default="laravel">
+  Database name to connect to. For SQLite this is the path to the `.sqlite` file; when omitted, Laravel resolves to `database/database.sqlite` inside the project root.
+</ParamField>
+
+<ParamField query="DB_USERNAME" type="string" default="root">
+  Database user. Not required when using SQLite.
+</ParamField>
+
+<ParamField query="DB_PASSWORD" type="string">
+  Password for the database user. Not required when using SQLite.
+</ParamField>
+
+<CodeGroup>
+
+```ini SQLite (default)
+DB_CONNECTION=sqlite
+# No additional variables needed.
+# Laravel creates database/database.sqlite automatically on first migration.
+```
+
+```ini MySQL / MariaDB
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=medicitas
+DB_USERNAME=medicitas_user
+DB_PASSWORD=your_password
+```
+
+</CodeGroup>
+
+<Tip>
+Run `php artisan migrate` after configuring the database. For a fresh SQLite setup, the file at `database/database.sqlite` must exist before migrations run — create it with `touch database/database.sqlite`.
+</Tip>
+
+---
+
+## Session
+
+MediCitas stores sessions in the database (the `sessions` table created by `php artisan session:table`). This is required for the dual-guard setup: both the `paciente` and `medico` guards write their session data to the same table, keyed by session ID.
+
+<ParamField query="SESSION_DRIVER" type="string" default="database">
+  Where Laravel stores session data. MediCitas requires `database` so that session records persist across multiple PHP processes and deployments. Other accepted values are `file`, `cookie`, `redis`, and `array` (tests only).
+</ParamField>
+
+<ParamField query="SESSION_LIFETIME" type="number" default="120">
+  Number of minutes before an idle session expires. After this period, users are required to log in again. Applies equally to `paciente` and `medico` sessions.
+</ParamField>
+
+<ParamField query="SESSION_ENCRYPT" type="boolean" default="false">
+  When `true`, Laravel encrypts session payloads before writing them to the store. Enable in production environments that handle sensitive patient or doctor data.
+</ParamField>
+
+<ParamField query="SESSION_PATH" type="string" default="/">
+  Cookie path scope. The default `/` makes the session cookie available across all routes. Only change this if MediCitas is mounted at a sub-path.
+</ParamField>
+
+<ParamField query="SESSION_DOMAIN" type="string" default="null">
+  Domain the session cookie is valid for. Set to your domain in production (e.g., `medicitas.example.com`) to prevent the cookie from being sent to other subdomains.
+</ParamField>
+
+```ini .env — session block
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+SESSION_ENCRYPT=false
+SESSION_PATH=/
+SESSION_DOMAIN=null
+```
+
+<Warning>
+If you change `SESSION_DRIVER` away from `database`, run `php artisan session:table && php artisan migrate` to ensure the required table exists, or sessions will fail silently and all users will be logged out on every request.
+</Warning>
+
+---
+
+## Queue and cache
+
+Both the queue worker and the cache store default to the database driver, which requires no additional infrastructure for development.
+
+<ParamField query="QUEUE_CONNECTION" type="string" default="database">
+  Driver used for queued jobs. `database` stores pending jobs in the `jobs` table. Run `php artisan queue:work` to process them. Switch to `sync` to process jobs immediately inline (useful in tests).
+</ParamField>
+
+<ParamField query="CACHE_STORE" type="string" default="database">
+  Default cache backend. `database` stores cached values in the `cache` table created by `php artisan cache:table`. In production, consider switching to `redis` for better performance.
+</ParamField>
+
+```ini .env — queue and cache block
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+```
+
+---
+
+## Mail
+
+In development, MediCitas logs outgoing mail to `storage/logs/laravel.log` instead of sending real messages. No mail server configuration is needed to get started.
+
+<ParamField query="MAIL_MAILER" type="string" default="log">
+  Mail transport to use. `log` writes message content to the application log — useful during development to inspect rendered email templates without a mail server. Switch to `smtp` or a transactional provider (e.g., `mailgun`, `ses`) for production.
+</ParamField>
+
+<ParamField query="MAIL_FROM_ADDRESS" type="string" default="hello@example.com">
+  Default sender address for all outgoing mail. Change this to the MediCitas sending address before going live.
+</ParamField>
+
+<ParamField query="MAIL_FROM_NAME" type="string" default="${APP_NAME}">
+  Display name shown in the From header. Defaults to the value of `APP_NAME`, so setting `APP_NAME=MediCitas` is enough to populate this automatically.
+</ParamField>
+
+```ini .env — mail block (development)
+MAIL_MAILER=log
+MAIL_FROM_ADDRESS="noreply@medicitas.example.com"
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+```ini .env — mail block (production SMTP)
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=your_smtp_user
+MAIL_PASSWORD=your_smtp_password
+MAIL_SCHEME=tls
+MAIL_FROM_ADDRESS="noreply@medicitas.example.com"
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+<Tip>
+During development, open `storage/logs/laravel.log` and search for `Message-ID:` to find the full rendered content of any email that MediCitas attempted to send.
+</Tip>

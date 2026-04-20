@@ -1,0 +1,265 @@
+---
+title: "Eloquent model reference: Paciente, Medico, and Cita"
+description: "Fillable fields, attribute casts, relationships, and query scopes for the three core MediCitas Eloquent models, with real usage examples from the codebase."
+---
+
+MediCitas defines three Eloquent models that map directly to the `pacientes`, `medicos`, and `citas` tables. `Paciente` and `Medico` both extend Laravel's `Authenticatable` base class, making them first-class auth principals with password hashing and session support built in. `Cita` extends the standard `Model` class and ties the two together through foreign-key relationships. All three models use the `SoftDeletes` trait, so deleted records are retained in the database with a `deleted_at` timestamp rather than being permanently removed.
+
+---
+
+## `Cita`
+
+`Cita` represents a single appointment between a patient and a doctor. It holds the schedule details (`fecha`, `hora`, `duracion_minutos`), the current lifecycle state (`estado`), and optional free-text fields for the reason and any notes.
+
+### Fillable fields
+
+```php
+protected $fillable = [
+    'paciente_id',
+    'medico_id',
+    'fecha',
+    'hora',
+    'estado',
+    'motivo',
+    'notas',
+    'duracion_minutos',
+];
+```
+
+### Attribute casts
+
+```php
+protected function casts(): array
+{
+    return [
+        'fecha' => 'date',
+        'hora'  => 'datetime:H:i',
+    ];
+}
+```
+
+`fecha` is cast to a Carbon date instance, so you can call date helpers like `->format('d/m/Y')` or `->addDays(7)` directly on it. `hora` is cast to a Carbon datetime formatted as `H:i`, giving you a full Carbon object for the time portion while displaying only hours and minutes.
+
+### Relationships
+
+`Cita` belongs to both a `Paciente` and a `Medico`:
+
+```php
+public function paciente()
+{
+    return $this->belongsTo(Paciente::class);
+}
+
+public function medico()
+{
+    return $this->belongsTo(Medico::class);
+}
+```
+
+Eager-load both when you need to display appointment details without triggering N+1 queries:
+
+```php
+$citas = Cita::with(['paciente', 'medico'])->get();
+
+foreach ($citas as $cita) {
+    echo "{$cita->paciente->nombre} — Dr. {$cita->medico->nombre}";
+}
+```
+
+### Query scopes
+
+Three local scopes let you filter by `estado` without repeating the `where` clause across your codebase:
+
+```php
+public function scopeProgramadas($query)
+{
+    return $query->where('estado', 'programada');
+}
+
+public function scopeCanceladas($query)
+{
+    return $query->where('estado', 'cancelada');
+}
+
+public function scopeCompletadas($query)
+{
+    return $query->where('estado', 'completada');
+}
+```
+
+**Usage examples:**
+
+```php
+// All upcoming scheduled appointments
+$programadas = Cita::programadas()->get();
+
+// Scheduled appointments for a specific date, with related models
+$hoy = Cita::programadas()
+    ->with(['paciente', 'medico'])
+    ->whereDate('fecha', today())
+    ->orderBy('hora')
+    ->get();
+
+// Completed appointments for a given doctor
+$completadas = Cita::completadas()
+    ->where('medico_id', $medico->id)
+    ->get();
+
+// Cancelled appointments in the last 30 days
+$canceladas = Cita::canceladas()
+    ->where('fecha', '>=', now()->subDays(30))
+    ->get();
+```
+
+<Note>
+  Because `Cita` uses `SoftDeletes`, all scope queries automatically exclude rows where `deleted_at` is set. To include soft-deleted appointments, chain `->withTrashed()` before calling a scope: `Cita::withTrashed()->programadas()->get()`.
+</Note>
+
+---
+
+## `Paciente`
+
+`Paciente` extends `Authenticatable` and uses the `Notifiable` trait, making it compatible with Laravel's built-in auth guards and notification system. It represents a registered patient who can log in and book appointments.
+
+### Fillable fields
+
+```php
+protected $fillable = [
+    'nombre',
+    'telefono',
+    'email',
+    'password',
+    'fecha_nacimiento',
+    'sexo',
+    'direccion',
+];
+```
+
+### Hidden fields
+
+```php
+protected $hidden = [
+    'password',
+    'remember_token',
+];
+```
+
+`password` and `remember_token` are excluded from array and JSON serialization, so they are never accidentally exposed in API responses or `toArray()` output.
+
+### Attribute casts
+
+```php
+protected function casts(): array
+{
+    return [
+        'password'        => 'hashed',
+        'fecha_nacimiento' => 'date',
+    ];
+}
+```
+
+The `hashed` cast automatically runs the value through `Hash::make()` whenever `password` is set, so you can assign plain-text passwords directly without calling `bcrypt()` manually. `fecha_nacimiento` is cast to a Carbon date instance.
+
+### Relationships
+
+```php
+public function citas()
+{
+    return $this->hasMany(Cita::class);
+}
+```
+
+**Usage examples:**
+
+```php
+// All appointments for a patient
+$citas = $paciente->citas;
+
+// Only upcoming scheduled appointments for a patient
+$proximas = $paciente->citas()->programadas()->orderBy('fecha')->get();
+
+// Eager-load appointments together with the assigned doctor
+$paciente = Paciente::with('citas.medico')->find($id);
+```
+
+<Note>
+  `Paciente` uses `SoftDeletes`. A call to `$paciente->delete()` sets `deleted_at` and hides the record from standard queries. The patient's `citas` rows are **not** automatically soft-deleted — only a database-level hard delete would cascade to the `citas` table.
+</Note>
+
+---
+
+## `Medico`
+
+`Medico` also extends `Authenticatable` with the `Notifiable` trait, giving doctors their own login identity. It carries an extra `activo` boolean (cast from the database) to indicate whether the doctor is currently accepting appointments.
+
+### Fillable fields
+
+```php
+protected $fillable = [
+    'nombre',
+    'especialidad',
+    'telefono',
+    'email',
+    'password',
+    'numero_licencia',
+    'activo',
+];
+```
+
+### Hidden fields
+
+```php
+protected $hidden = [
+    'password',
+    'remember_token',
+];
+```
+
+As with `Paciente`, credentials are stripped from serialized output automatically.
+
+### Attribute casts
+
+```php
+protected function casts(): array
+{
+    return [
+        'password' => 'hashed',
+        'activo'   => 'boolean',
+    ];
+}
+```
+
+`password` uses the `hashed` cast for automatic bcrypt hashing on assignment. `activo` is cast to a PHP boolean, so you can evaluate it directly in conditionals without comparing against `1` or `"true"`.
+
+### Relationships
+
+```php
+public function citas()
+{
+    return $this->hasMany(Cita::class);
+}
+```
+
+**Usage examples:**
+
+```php
+// All appointments belonging to a doctor
+$citas = $medico->citas;
+
+// A doctor's schedule for a specific date
+$agenda = $medico->citas()
+    ->programadas()
+    ->whereDate('fecha', $fecha)
+    ->orderBy('hora')
+    ->get();
+
+// Eager-load each appointment's patient details
+$medico = Medico::with('citas.paciente')->find($id);
+
+// Only active doctors
+$activos = Medico::where('activo', true)->get();
+```
+
+<Note>
+  `activo` is part of `$fillable` and is cast to boolean, but the `medicos` migration does not define this column — it would need to be added in a separate migration. Verify this column exists in your database before relying on it.
+</Note>

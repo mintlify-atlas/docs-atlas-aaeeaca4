@@ -1,0 +1,306 @@
+---
+title: "CitaController: all appointment management methods"
+description: "Full method reference for CitaController — index, create, store, edit, update, and cancelar with validation rules, ownership checks, and role logic."
+---
+
+`CitaController` manages the full lifecycle of appointments (`citas`) in MediCitas. Every public method resolves the authenticated user through the private `usuarioActual()` helper, which determines both the user model and the guard type (`paciente` or `medico`). Role awareness is baked into every operation: patients and doctors see different filtered lists, and authorization checks on edit, update, and cancel operations confirm that the appointment actually belongs to the requesting user before any mutation is allowed. Appointments are never hard-deleted — the `Cita` model uses `SoftDeletes` and the `cancelar` action changes `estado` to `'cancelada'` instead.
+
+---
+
+## `usuarioActual()` (private)
+
+Resolves the currently authenticated user and their type from the active guard. All public methods call this helper as their first step.
+
+```php
+private function usuarioActual(): array
+{
+    if (Auth::guard('paciente')->check()) {
+        return ['usuario' => Auth::guard('paciente')->user(), 'tipo' => 'paciente'];
+    }
+    return ['usuario' => Auth::guard('medico')->user(), 'tipo' => 'medico'];
+}
+```
+
+**Returns:** `array` with two keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `usuario` | `Paciente\|Medico` | The authenticated user model |
+| `tipo` | `string` | Either `'paciente'` or `'medico'` |
+
+<Note>
+The `paciente` guard is checked first. If it is not active, the method assumes the `medico` guard is active. This mirrors the same precedence used in `AuthController::dashboard()`.
+</Note>
+
+---
+
+## `index()`
+
+Lists all appointments for the authenticated user, ordered by date then time. The query eager-loads the related party depending on role: patients load their `medico`, doctors load their `paciente`.
+
+```php
+public function index()
+{
+    ['usuario' => $usuario, 'tipo' => $tipo] = $this->usuarioActual();
+
+    if ($tipo === 'paciente') {
+        $citas = $usuario->citas()->with('medico')->orderBy('fecha')->orderBy('hora')->get();
+    } else {
+        $citas = $usuario->citas()->with('paciente')->orderBy('fecha')->orderBy('hora')->get();
+    }
+
+    return view('citas.index', compact('citas', 'tipo'));
+}
+```
+
+### View variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `$citas` | `Collection<Cita>` | Appointments belonging to the authenticated user, sorted by `fecha` then `hora` |
+| `$tipo` | `string` | `'paciente'` or `'medico'`, for conditional rendering in the view |
+
+**Returns:** `Illuminate\View\View` — renders `resources/views/citas/index.blade.php`.
+
+---
+
+## `create()`
+
+Returns the appointment creation form with all available doctors and patients pre-loaded for use in select inputs.
+
+```php
+public function create()
+{
+    ['tipo' => $tipo] = $this->usuarioActual();
+
+    $medicos   = Medico::all();
+    $pacientes = Paciente::all();
+
+    return view('citas.create', compact('medicos', 'pacientes', 'tipo'));
+}
+```
+
+### View variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `$medicos` | `Collection<Medico>` | All doctor records |
+| `$pacientes` | `Collection<Paciente>` | All patient records |
+| `$tipo` | `string` | Active guard type, used by the view to show or hide the counterpart selector |
+
+**Returns:** `Illuminate\View\View` — renders `resources/views/citas/create.blade.php`.
+
+---
+
+## `store(Request $request)`
+
+Validates the submitted data, infers the missing party ID from the authenticated user's role, and persists the new appointment with a default status of `'programada'`.
+
+```php
+public function store(Request $request)
+{
+    ['usuario' => $usuario, 'tipo' => $tipo] = $this->usuarioActual();
+
+    $request->validate([
+        'fecha'             => ['required', 'date', 'after_or_equal:today'],
+        'hora'              => ['required'],
+        'motivo'            => ['required', 'string', 'max:500'],
+        'duracion_minutos'  => ['nullable', 'integer', 'min:15', 'max:180'],
+        'paciente_id'       => ['required_if:tipo,medico', 'exists:pacientes,id'],
+        'medico_id'         => ['required_if:tipo,paciente', 'exists:medicos,id'],
+    ]);
+
+    Cita::create([
+        'paciente_id'      => $tipo === 'paciente' ? $usuario->id : $request->paciente_id,
+        'medico_id'        => $tipo === 'medico'   ? $usuario->id : $request->medico_id,
+        'fecha'            => $request->fecha,
+        'hora'             => $request->hora,
+        'motivo'           => $request->motivo,
+        'duracion_minutos' => $request->duracion_minutos ?? 30,
+        'estado'           => 'programada',
+    ]);
+
+    return redirect()->route('citas.index')->with('success', 'Cita creada correctamente.');
+}
+```
+
+### Request parameters
+
+<ParamField body="fecha" type="string" required>
+  Appointment date in a format accepted by PHP's `strtotime`. Must be today or a future date (`after_or_equal:today`).
+</ParamField>
+
+<ParamField body="hora" type="string" required>
+  Appointment time. No additional format constraint is enforced at the validation layer.
+</ParamField>
+
+<ParamField body="motivo" type="string" required>
+  Reason for the appointment. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="duracion_minutos" type="integer">
+  Duration in minutes. Must be between 15 and 180 inclusive. Defaults to `30` if omitted.
+</ParamField>
+
+<ParamField body="paciente_id" type="integer">
+  ID of the patient. Required when the authenticated user is a `medico`. Must exist in the `pacientes` table.
+</ParamField>
+
+<ParamField body="medico_id" type="integer">
+  ID of the doctor. Required when the authenticated user is a `paciente`. Must exist in the `medicos` table.
+</ParamField>
+
+### Role-based ID assignment
+
+| Authenticated as | `paciente_id` source | `medico_id` source |
+|-----------------|----------------------|---------------------|
+| `paciente` | `$usuario->id` (automatic) | `$request->medico_id` (required) |
+| `medico` | `$request->paciente_id` (required) | `$usuario->id` (automatic) |
+
+**Returns:** `Illuminate\Http\RedirectResponse` — redirects to `citas.index` with a `success` flash on creation.
+
+---
+
+## `edit(Cita $cita)`
+
+Authorizes the request, enforces that only scheduled appointments can be edited, then returns the edit form with all doctors and patients.
+
+```php
+public function edit(Cita $cita)
+{
+    ['usuario' => $usuario, 'tipo' => $tipo] = $this->usuarioActual();
+
+    if ($tipo === 'paciente' && $cita->paciente_id !== $usuario->id) {
+        abort(403);
+    }
+    if ($tipo === 'medico' && $cita->medico_id !== $usuario->id) {
+        abort(403);
+    }
+
+    if ($cita->estado !== 'programada') {
+        return redirect()->route('citas.index')->with('error', 'Solo se pueden editar citas programadas.');
+    }
+
+    $medicos   = Medico::all();
+    $pacientes = Paciente::all();
+
+    return view('citas.edit', compact('cita', 'medicos', 'pacientes', 'tipo'));
+}
+```
+
+<Note>
+Authorization is performed manually by comparing the appointment's `paciente_id` or `medico_id` against `$usuario->id`. A mismatch calls `abort(403)` and returns an HTTP 403 response before any view is rendered.
+</Note>
+
+<Warning>
+If `$cita->estado` is anything other than `'programada'` (e.g., `'cancelada'` or `'completada'`), the method redirects to `citas.index` with an `error` flash message: `"Solo se pueden editar citas programadas."` The edit form is never shown.
+</Warning>
+
+### View variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `$cita` | `Cita` | The appointment being edited |
+| `$medicos` | `Collection<Medico>` | All doctor records |
+| `$pacientes` | `Collection<Paciente>` | All patient records |
+| `$tipo` | `string` | Active guard type |
+
+**Returns:** `Illuminate\View\View` — renders `resources/views/citas/edit.blade.php`, or `Illuminate\Http\RedirectResponse` if the appointment is not editable.
+
+---
+
+## `update(Request $request, Cita $cita)`
+
+Performs the same ownership authorization as `edit`, validates the incoming data, and updates the appointment's mutable fields. Party IDs (`paciente_id`, `medico_id`) and `estado` are not updated here.
+
+```php
+public function update(Request $request, Cita $cita)
+{
+    ['usuario' => $usuario, 'tipo' => $tipo] = $this->usuarioActual();
+
+    if ($tipo === 'paciente' && $cita->paciente_id !== $usuario->id) {
+        abort(403);
+    }
+    if ($tipo === 'medico' && $cita->medico_id !== $usuario->id) {
+        abort(403);
+    }
+
+    $request->validate([
+        'fecha'            => ['required', 'date', 'after_or_equal:today'],
+        'hora'             => ['required'],
+        'motivo'           => ['required', 'string', 'max:500'],
+        'duracion_minutos' => ['nullable', 'integer', 'min:15', 'max:180'],
+    ]);
+
+    $cita->update([
+        'fecha'            => $request->fecha,
+        'hora'             => $request->hora,
+        'motivo'           => $request->motivo,
+        'duracion_minutos' => $request->duracion_minutos ?? 30,
+    ]);
+
+    return redirect()->route('citas.index')->with('success', 'Cita actualizada correctamente.');
+}
+```
+
+### Request parameters
+
+<ParamField body="fecha" type="string" required>
+  New appointment date. Must be today or a future date.
+</ParamField>
+
+<ParamField body="hora" type="string" required>
+  New appointment time.
+</ParamField>
+
+<ParamField body="motivo" type="string" required>
+  Updated reason for the appointment. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="duracion_minutos" type="integer">
+  Updated duration in minutes. Must be between 15 and 180. Defaults to `30` if omitted.
+</ParamField>
+
+<Note>
+`update` does not validate or accept `estado`, `paciente_id`, or `medico_id`. Those fields can only be set during creation or through `cancelar`. Submitting them in the request body has no effect.
+</Note>
+
+**Returns:** `Illuminate\Http\RedirectResponse` — redirects to `citas.index` with a `success` flash on update, or returns HTTP 403 if authorization fails.
+
+---
+
+## `cancelar(Cita $cita)`
+
+Authorizes the request, confirms the appointment is in `'programada'` state, then sets `estado` to `'cancelada'`. The record is retained in the database.
+
+```php
+public function cancelar(Cita $cita)
+{
+    ['usuario' => $usuario, 'tipo' => $tipo] = $this->usuarioActual();
+
+    if ($tipo === 'paciente' && $cita->paciente_id !== $usuario->id) {
+        abort(403);
+    }
+    if ($tipo === 'medico' && $cita->medico_id !== $usuario->id) {
+        abort(403);
+    }
+
+    if ($cita->estado !== 'programada') {
+        return redirect()->route('citas.index')->with('error', 'Solo se pueden cancelar citas programadas.');
+    }
+
+    $cita->update(['estado' => 'cancelada']);
+
+    return redirect()->route('citas.index')->with('success', 'Cita cancelada correctamente.');
+}
+```
+
+<Note>
+Cancellation is a soft state change, not a deletion. The `Cita` record remains in the database with `estado = 'cancelada'`. The `Cita` model also has `SoftDeletes`, but `cancelar` does not call `delete()`.
+</Note>
+
+<Warning>
+If `$cita->estado` is not `'programada'`, the method redirects to `citas.index` with an `error` flash: `"Solo se pueden cancelar citas programadas."` Already-cancelled or completed appointments cannot be cancelled again.
+</Warning>
+
+**Returns:** `Illuminate\Http\RedirectResponse` — redirects to `citas.index` with a `success` flash on cancellation, `error` flash if the state check fails, or HTTP 403 if authorization fails.

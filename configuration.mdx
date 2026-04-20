@@ -1,0 +1,180 @@
+---
+title: "Configuring MediCitas environment and database settings"
+description: "Set your application key, database connection, session driver, and other environment variables to run MediCitas in development or production."
+---
+
+MediCitas reads its runtime settings from a `.env` file in the project root. When you run `composer run setup` (or copy `.env.example` to `.env` manually), this file is created with sensible defaults for local development. Before going live, or when targeting a specific database backend, you will need to update a handful of these values. This guide covers the variables that actually affect how MediCitas behaves — not every variable in the file.
+
+## The `.env` file
+
+The `.env` file is not committed to version control and is specific to each installation. To start from the provided template:
+
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+`key:generate` writes a unique base64 value to `APP_KEY`. Never share this key or commit it to a repository — it protects encrypted session data and signed cookies.
+
+<Warning>
+  If `APP_KEY` is empty or missing, Laravel will throw a `No application encryption key` error and refuse to start. Always run `php artisan key:generate` once after creating your `.env` file.
+</Warning>
+
+## Application identity
+
+These variables define how MediCitas identifies itself and which mode it runs in:
+
+```env
+APP_NAME=MediCitas
+APP_ENV=local
+APP_KEY=base64:...
+APP_DEBUG=true
+APP_URL=http://localhost
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `APP_NAME` | Displayed in page titles and email sender names |
+| `APP_ENV` | `local` for development, `production` for live deployments |
+| `APP_KEY` | Encryption key — generated once with `php artisan key:generate` |
+| `APP_DEBUG` | Set to `false` in production to hide stack traces from end users |
+| `APP_URL` | Full base URL of the application, used for generating links |
+
+<Warning>
+  Always set `APP_DEBUG=false` and `APP_ENV=production` before exposing MediCitas to the internet. Leaving debug mode on leaks internal file paths and configuration details.
+</Warning>
+
+## Database
+
+MediCitas supports SQLite out of the box, with no external server required. For production or team environments, MySQL (or MariaDB) and PostgreSQL are also supported.
+
+### SQLite (default)
+
+The default configuration requires no changes. Laravel will create and use `database/database.sqlite` automatically:
+
+```env
+DB_CONNECTION=sqlite
+```
+
+<Tip>
+  SQLite is ideal for local development and small single-server deployments. The database file lives at `database/database.sqlite` inside the project directory.
+</Tip>
+
+### MySQL or MariaDB
+
+Uncomment and fill in the MySQL block in your `.env` file:
+
+<CodeGroup>
+
+```env MySQL
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=medicitas
+DB_USERNAME=root
+DB_PASSWORD=your_password
+```
+
+```env MariaDB
+DB_CONNECTION=mariadb
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=medicitas
+DB_USERNAME=root
+DB_PASSWORD=your_password
+```
+
+</CodeGroup>
+
+Create the target database before running migrations:
+
+```bash
+# MySQL / MariaDB
+mysql -u root -p -e "CREATE DATABASE medicitas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+php artisan migrate
+```
+
+### PostgreSQL
+
+<CodeGroup>
+
+```env PostgreSQL
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=medicitas
+DB_USERNAME=root
+DB_PASSWORD=your_password
+```
+
+</CodeGroup>
+
+```bash
+# PostgreSQL
+createdb medicitas
+php artisan migrate
+```
+
+## Session
+
+MediCitas stores user sessions in the database by default. This works without any additional infrastructure and supports the three authentication guards used by the app (`web`, `paciente`, and `medico`):
+
+```env
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+SESSION_ENCRYPT=false
+SESSION_PATH=/
+SESSION_DOMAIN=null
+```
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `SESSION_DRIVER` | `database` | Where sessions are stored. `file` is a lighter alternative for single-server setups |
+| `SESSION_LIFETIME` | `120` | Minutes of inactivity before a session expires |
+| `SESSION_ENCRYPT` | `false` | Set to `true` to encrypt session data at rest using `APP_KEY` |
+| `SESSION_DOMAIN` | `null` | Restrict the session cookie to a specific domain in production |
+
+<Note>
+  Because `SESSION_DRIVER=database`, the `sessions` table must exist before any user can log in. The table is created by the standard migrations included with MediCitas. If you see session-related errors, run `php artisan migrate` to make sure all migrations have been applied.
+</Note>
+
+## Queue and cache
+
+The default configuration uses the database for both queues and caching, which means no Redis or other external service is needed:
+
+```env
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+```
+
+If you want better queue or cache performance in production, you can switch to Redis by installing the `predis/predis` package and updating these values:
+
+```env
+QUEUE_CONNECTION=redis
+CACHE_STORE=redis
+
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+```
+
+## Mail
+
+By default, all outgoing mail is written to the Laravel log (`storage/logs/laravel.log`) rather than actually sent. This is safe for local development:
+
+```env
+MAIL_MAILER=log
+```
+
+To send real email in production, replace this block with your SMTP provider's credentials:
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=your_username
+MAIL_PASSWORD=your_password
+MAIL_FROM_ADDRESS="noreply@yourclinic.com"
+MAIL_FROM_NAME="${APP_NAME}"
+```

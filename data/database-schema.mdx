@@ -1,0 +1,143 @@
+---
+title: "Database schema: pacientes, medicos, and citas tables"
+description: "Full table definitions for the three core MediCitas tables — column types, nullable constraints, foreign keys, indexes, and soft-delete behavior."
+---
+
+MediCitas uses three tables that form the core of the appointment management system: `pacientes` stores patient accounts, `medicos` stores doctor accounts, and `citas` records every appointment scheduled between a patient and a doctor. All three tables use Laravel's soft deletes, meaning no record is ever permanently removed — deleted rows are instead marked with a `deleted_at` timestamp and excluded from normal queries.
+
+## Table relationships
+
+The schema follows a straightforward one-to-many structure. A `paciente` can have many `citas`, and a `medico` can also have many `citas`. Each `cita` belongs to exactly one `paciente` and exactly one `medico`, enforced through foreign key constraints with cascading deletes. If a patient or doctor record is hard-deleted from the database, all of their associated appointment rows are automatically removed as well.
+
+<Note>
+  Soft deletes are applied on all three tables. Calling `delete()` on a model sets `deleted_at` rather than issuing a `DELETE` SQL statement. Use `forceDelete()` to permanently remove a row and trigger the cascade on `citas`.
+</Note>
+
+---
+
+## `pacientes`
+
+Each row represents a registered patient. The `email` column is unique across the table and doubles as the login credential alongside `password`.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `bigint unsigned` | Primary key, auto-increment | Surrogate primary key |
+| `nombre` | `varchar(150)` | Not null | Patient's full name |
+| `telefono` | `varchar(20)` | Not null | Contact phone number |
+| `email` | `varchar(150)` | Not null, unique | Login email address |
+| `fecha_nacimiento` | `date` | Not null | Date of birth |
+| `sexo` | `enum` | Not null | One of `masculino`, `femenino`, `otro` |
+| `direccion` | `text` | Not null | Home address |
+| `password` | `varchar(255)` | Not null | Bcrypt-hashed password |
+| `remember_token` | `varchar(100)` | Nullable | Laravel "remember me" session token |
+| `created_at` | `timestamp` | Nullable | Row creation time |
+| `updated_at` | `timestamp` | Nullable | Last update time |
+| `deleted_at` | `timestamp` | Nullable | Soft-delete marker; `null` means the row is active |
+
+### Migration source
+
+```php
+Schema::create('pacientes', function (Blueprint $table) {
+    $table->id();
+    $table->string('nombre', 150);
+    $table->string('telefono', 20);
+    $table->string('email', 150)->unique();
+    $table->date('fecha_nacimiento');
+    $table->enum('sexo', ['masculino', 'femenino', 'otro']);
+    $table->text('direccion');
+    $table->string('password');
+    $table->rememberToken();
+    $table->timestamps();
+    $table->softDeletes();
+});
+```
+
+---
+
+## `medicos`
+
+Each row represents a licensed doctor. Both `email` and `numero_licencia` are unique, so neither can appear twice in the table.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `bigint unsigned` | Primary key, auto-increment | Surrogate primary key |
+| `nombre` | `varchar(150)` | Not null | Doctor's full name |
+| `especialidad` | `varchar(100)` | Not null | Medical specialty (e.g., Cardiología) |
+| `telefono` | `varchar(20)` | Not null | Contact phone number |
+| `email` | `varchar(150)` | Not null, unique | Login email address |
+| `numero_licencia` | `varchar(50)` | Not null, unique | Official medical licence number |
+| `password` | `varchar(255)` | Not null | Bcrypt-hashed password |
+| `remember_token` | `varchar(100)` | Nullable | Laravel "remember me" session token |
+| `created_at` | `timestamp` | Nullable | Row creation time |
+| `updated_at` | `timestamp` | Nullable | Last update time |
+| `deleted_at` | `timestamp` | Nullable | Soft-delete marker; `null` means the row is active |
+
+### Migration source
+
+```php
+Schema::create('medicos', function (Blueprint $table) {
+    $table->id();
+    $table->string('nombre', 150);
+    $table->string('especialidad', 100);
+    $table->string('telefono', 20);
+    $table->string('email', 150)->unique();
+    $table->string('numero_licencia', 50)->unique();
+    $table->string('password');
+    $table->rememberToken();
+    $table->timestamps();
+    $table->softDeletes();
+});
+```
+
+---
+
+## `citas`
+
+Each row represents a single appointment. The `estado` column tracks the lifecycle of an appointment from its initial `programada` state through to `completada` or `cancelada`. Two indexes accelerate the most common query patterns: looking up appointments by date and time, and filtering by status.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `bigint unsigned` | Primary key, auto-increment | Surrogate primary key |
+| `paciente_id` | `bigint unsigned` | Not null, FK → `pacientes.id` cascade delete | The patient this appointment belongs to |
+| `medico_id` | `bigint unsigned` | Not null, FK → `medicos.id` cascade delete | The doctor this appointment belongs to |
+| `fecha` | `date` | Not null | Appointment date |
+| `hora` | `time` | Not null | Appointment start time |
+| `estado` | `enum` | Not null, default `programada` | One of `programada`, `cancelada`, `completada` |
+| `motivo` | `text` | Nullable | Reason the patient is seeking care |
+| `notas` | `text` | Nullable | Doctor or administrative notes |
+| `duracion_minutos` | `smallint unsigned` | Not null, default `30` | Expected appointment length in minutes |
+| `created_at` | `timestamp` | Nullable | Row creation time |
+| `updated_at` | `timestamp` | Nullable | Last update time |
+| `deleted_at` | `timestamp` | Nullable | Soft-delete marker; `null` means the row is active |
+
+### Indexes
+
+| Index | Columns | Purpose |
+|---|---|---|
+| Composite index | `(fecha, hora)` | Efficient date-range and schedule queries |
+| Single-column index | `estado` | Fast filtering by appointment status |
+
+### Migration source
+
+```php
+Schema::create('citas', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('paciente_id')->constrained('pacientes')->cascadeOnDelete();
+    $table->foreignId('medico_id')->constrained('medicos')->cascadeOnDelete();
+    $table->date('fecha');
+    $table->time('hora');
+    $table->enum('estado', ['programada', 'cancelada', 'completada'])->default('programada');
+    $table->text('motivo')->nullable();
+    $table->text('notas')->nullable();
+    $table->unsignedSmallInteger('duracion_minutos')->default(30);
+    $table->timestamps();
+    $table->softDeletes();
+
+    $table->index(['fecha', 'hora']);
+    $table->index('estado');
+});
+```
+
+<Note>
+  `paciente_id` and `medico_id` use `cascadeOnDelete()`, which only fires on hard deletes at the database level. Soft-deleting a `Paciente` or `Medico` through Eloquent does **not** cascade to `citas` — those appointment rows remain in place with their own `deleted_at` values unchanged.
+</Note>

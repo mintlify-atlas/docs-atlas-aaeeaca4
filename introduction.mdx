@@ -1,0 +1,63 @@
+---
+title: "MediCitas: medical appointment management for clinics"
+description: "MediCitas is a Laravel-based appointment system for clinics. Patients book visits, doctors manage schedules, and the system prevents double-booking."
+---
+
+MediCitas is a Laravel-based medical appointment management system that gives clinics a structured way to coordinate patient visits. Patients can book appointments with specific doctors, view their history, and cancel upcoming visits. Doctors see their incoming schedule, manage appointment details, and mark visits as complete.
+
+<CardGroup cols={2}>
+  <Card title="Quick Installation" icon="rocket" href="/installation">
+    Set up MediCitas on your server in a few steps using Composer and Artisan.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Configure your database, guards, and environment for production use.
+  </Card>
+  <Card title="Patient Guide" icon="user" href="/guides/patient-guide">
+    Step-by-step walkthrough for patients: login, book, manage, and review appointments.
+  </Card>
+  <Card title="Doctor Guide" icon="stethoscope" href="/guides/doctor-guide">
+    How doctors log in, view their schedule, and handle appointment status updates.
+  </Card>
+</CardGroup>
+
+## What MediCitas does
+
+MediCitas addresses the core scheduling needs of a medical clinic:
+
+- **Dual-role access** — Patients and doctors log in separately with their own account types. Each sees only data relevant to their role.
+- **Appointment lifecycle** — Every appointment moves through three states: `programada` (scheduled), `cancelada` (cancelled), and `completada` (completed).
+- **Schedule conflict prevention** — The system validates that a doctor cannot have two appointments at the same date and time.
+- **Daily dashboard** — After login, both patients and doctors land on a dashboard showing today's appointments at a glance.
+- **Appointment history** — All past appointments remain accessible for both user types.
+
+## Core entities
+
+| Entity | Description |
+|--------|-------------|
+| **Paciente** (Patient) | A registered patient who can book appointments |
+| **Medico** (Doctor) | A licensed physician who receives appointment requests |
+| **Cita** (Appointment) | A scheduled meeting between a patient and doctor at a specific date/time |
+
+## Tech stack
+
+MediCitas is built on:
+
+- **Laravel 13** — PHP web framework with Eloquent ORM
+- **SQLite** (default) or MySQL/PostgreSQL — relational database
+- **Tailwind CSS 4 + Vite** — frontend styling and asset bundling
+- **Laravel session guards** — separate authentication contexts for patients and doctors
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/features/authentication">
+    Learn how the dual-guard login system works for patients and doctors.
+  </Card>
+  <Card title="Appointments" icon="calendar" href="/features/appointments">
+    Understand the full appointment workflow, states, and validation rules.
+  </Card>
+  <Card title="Database Schema" icon="database" href="/data/database-schema">
+    Explore the tables, columns, and relationships that power MediCitas.
+  </Card>
+  <Card title="Routes Reference" icon="route" href="/reference/routes">
+    Full list of HTTP routes exposed by the application.
+  </Card>
+</CardGroup>

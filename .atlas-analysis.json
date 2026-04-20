@@ -1,0 +1,89 @@
+{
+  "projectType": "saas",
+  "projectName": "MediCitas",
+  "projectDescription": "A medical appointment management system built with Laravel, allowing patients and doctors to schedule, view, and manage appointments with schedule conflict prevention.",
+  "theme": "almond",
+  "primaryColor": "#2E86AB",
+  "lightColor": "#E8F4F8",
+  "darkColor": "#1A5276",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/authentication",
+              "features/appointments",
+              "features/dashboard"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/patient-guide",
+              "guides/doctor-guide"
+            ]
+          },
+          {
+            "group": "Data & Models",
+            "pages": [
+              "data/database-schema",
+              "data/models"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Routes & Controllers",
+            "pages": [
+              "reference/routes",
+              "reference/auth-controller",
+              "reference/appointment-controller"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "reference/auth-guards",
+              "reference/environment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dual-role authentication (patients and doctors use separate guards)",
+    "Appointment scheduling with date/time conflict prevention",
+    "Full appointment lifecycle management (scheduled, cancelled, completed)",
+    "Role-aware dashboard showing today's appointments",
+    "Soft deletes on all core entities (patients, doctors, appointments)",
+    "Appointment duration tracking (15–180 minutes)",
+    "RESTful resource routes for appointment CRUD"
+  ],
+  "publicApiSurface": [
+    "GET /login — Show login form",
+    "POST /login — Authenticate patient or doctor",
+    "POST /logout — End session",
+    "GET /dashboard — Show today's appointments dashboard",
+    "GET /citas — List all appointments for authenticated user",
+    "GET /citas/create — Show appointment creation form",
+    "POST /citas — Store a new appointment",
+    "GET /citas/{id}/edit — Show appointment edit form",
+    "PUT /citas/{id} — Update an appointment",
+    "PATCH /citas/{id}/cancelar — Cancel an appointment"
+  ]
+}

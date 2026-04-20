@@ -1,0 +1,69 @@
+---
+title: "Dashboard: post-login view for patients and doctors"
+description: "After login MediCitas lands you on the dashboard. Learn how role detection works and what each user type sees when they arrive at /dashboard."
+---
+
+After a successful login, MediCitas lands you on the dashboard at `/dashboard`. The dashboard is your starting point: it identifies who you are, determines your role, and surfaces the appointments relevant to you. Both patients and doctors use the same route — the controller resolves the difference automatically by inspecting the active authentication guard.
+
+## How role detection works
+
+The `dashboard` action in `AuthController` checks the `paciente` guard first. If that guard has an authenticated user, that user is passed to the view as `$usuario`. If not, it falls back to the `medico` guard.
+
+```php
+$usuario = Auth::guard('paciente')->user() ?? Auth::guard('medico')->user();
+```
+
+This means the view receives a single `$usuario` variable whose underlying type is either `App\Models\Paciente` or `App\Models\Medico`. The view uses this to conditionally render role-appropriate content.
+
+<Note>
+  Because the guard check always tries `paciente` first, it is technically possible for a user who is logged in under both guards simultaneously to always appear as a patient. In practice the middleware and login flow prevent dual-guard sessions.
+</Note>
+
+## What the dashboard shows
+
+<Tabs>
+  <Tab title="Patient dashboard">
+    Patients see a personalized greeting using their `nombre` field. The main content area surfaces upcoming appointments, each showing:
+
+    - Appointment date and time (`fecha`, `hora`)
+    - The doctor's name from the linked `Medico` record
+    - Appointment duration (`duracion_minutos`)
+    - Current state badge (`programada`, `cancelada`, or `completada`)
+    - The reason for the visit (`motivo`)
+
+    From here patients can navigate to the full appointment list, create a new appointment, or log out.
+  </Tab>
+  <Tab title="Doctor dashboard">
+    Doctors see the same layout adapted to their role. Upcoming appointments show:
+
+    - Appointment date and time (`fecha`, `hora`)
+    - The patient's name from the linked `Paciente` record
+    - Appointment duration (`duracion_minutos`)
+    - Current state badge
+    - The reason for the visit (`motivo`)
+
+    From here doctors can navigate to the full appointment list, create a new appointment, or log out.
+  </Tab>
+</Tabs>
+
+## Navigation from the dashboard
+
+The following actions are available from the dashboard for all authenticated users:
+
+| Destination | Route name | Description |
+|---|---|---|
+| Appointment list | `citas.index` | Full list of your appointments, all states |
+| New appointment | `citas.create` | Form to schedule a new appointment |
+| Logout | `logout` | Ends your session and returns to the login page |
+
+<Tip>
+  The dashboard route (`/dashboard`) is the only named destination that `POST /login` redirects to. Bookmarking `/dashboard` is safe — unauthenticated requests to that URL are redirected to `/login` by the `auth:paciente,medico` middleware.
+</Tip>
+
+## Access control
+
+The `/dashboard` route is protected by the `auth:paciente,medico` middleware. Unauthenticated visitors are redirected to `GET /login`. There is no role-specific middleware on the dashboard itself — the same route serves both patients and doctors, with the view adapting to the resolved `$usuario`.
+
+<Warning>
+  Do not attempt to access `/dashboard` directly after your session has expired. The middleware will redirect you to the login page; any unsaved state will be lost.
+</Warning>

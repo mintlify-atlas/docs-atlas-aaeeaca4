@@ -1,0 +1,93 @@
+---
+title: "How MediCitas authenticates patients and doctors separately"
+description: "MediCitas uses two separate Laravel guards for patients and doctors. Learn how login, session management, and logout work for each role."
+---
+
+MediCitas separates patients and doctors into two independent authentication contexts. Each role has its own Laravel guard backed by a separate database table, meaning a single email address can exist in both the `pacientes` and `medicos` tables without conflict. Sessions are stored in the database and expire after 120 minutes of inactivity.
+
+## Account types
+
+MediCitas defines two authenticatable models, each mapped to its own guard in `config/auth.php`:
+
+| Role | Guard | Eloquent model | Table |
+|---|---|---|---|
+| Patient | `paciente` | `App\Models\Paciente` | `pacientes` |
+| Doctor | `medico` | `App\Models\Medico` | `medicos` |
+
+Both models extend Laravel's `Authenticatable` contract and use `SoftDeletes`, so deleted accounts are preserved in the database.
+
+## Logging in
+
+The login form at `GET /login` accepts three fields: email address, password, and account type. The account type selector maps directly to the guard name used for the authentication attempt.
+
+<Steps>
+  <Step title="Open the login page">
+    Navigate to `/login`. If you are already authenticated, the middleware redirects you away from this page automatically.
+  </Step>
+  <Step title="Select your account type">
+    Choose **Patient** or **Doctor** from the account type selector. This tells MediCitas which credential store to check.
+  </Step>
+  <Step title="Enter your credentials">
+    Provide your registered email address and password, then submit the form.
+  </Step>
+  <Step title="Land on your dashboard">
+    On success, MediCitas regenerates your session ID and redirects you to `/dashboard` with a confirmation message. Your session is now active under the guard that matched your account type.
+  </Step>
+</Steps>
+
+<Note>
+  The account type field (`tipo`) is validated server-side and must be either `paciente` or `medico`. Submitting any other value is rejected before the credential check runs.
+</Note>
+
+### Login form fields
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | string | Yes | Must be a valid email format |
+| `password` | string | Yes | Compared against the hashed value in the matching table |
+| `tipo` | string | Yes | Must be `paciente` or `medico` |
+
+## Failed login attempts
+
+When credentials do not match, MediCitas returns you to the login form with a field-level error on `email`. Your email address is preserved in the form so you do not have to retype it. The password field is always cleared.
+
+```text
+Las credenciales no son correctas.
+```
+
+<Warning>
+  Failed attempts do not distinguish between "wrong password" and "email not found." This is intentional — revealing which part of the credentials was wrong would allow account enumeration.
+</Warning>
+
+## Session behavior
+
+Sessions are database-backed (configured via `SESSION_DRIVER=database` in `.env`). The default lifetime is **120 minutes** of inactivity, after which the session is considered expired and the user must log in again.
+
+After a successful login the session ID is regenerated (`session()->regenerate()`) to prevent session fixation attacks.
+
+<Tabs>
+  <Tab title="Patient session">
+    The patient session is held under the `paciente` guard. Only routes protected by `auth:paciente,medico` middleware are accessible. Patient-specific data such as appointment lists are scoped to the authenticated patient's ID.
+  </Tab>
+  <Tab title="Doctor session">
+    The doctor session is held under the `medico` guard. Doctors have access to the same protected routes but see their own appointments and patient lists rather than the patient's view.
+  </Tab>
+</Tabs>
+
+## Logging out
+
+Submitting `POST /logout` closes sessions on **both** guards simultaneously, regardless of which guard is currently active. This is a deliberate safety measure — if somehow both guards were active, a single logout clears both.
+
+```text
+POST /logout
+```
+
+After logout:
+1. Both `paciente` and `medico` guards are signed out via `Auth::guard(...)->logout()`.
+2. The session is invalidated (`session()->invalidate()`).
+3. The CSRF token is regenerated (`session()->regenerateToken()`).
+4. You are redirected to `GET /login` with a success message.
+
+<Tip>
+  Always log out using the logout button rather than simply closing the browser. Database sessions persist across browser restarts, so closing the tab does not end your session on the server.
+</Tip>

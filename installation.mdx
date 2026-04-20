@@ -1,0 +1,177 @@
+---
+title: "How to install MediCitas and start the development server"
+description: "Install MediCitas on your local machine or server: clone the repo, run composer setup, configure your database, and start the dev server."
+---
+
+MediCitas is a Laravel 13 application for managing medical appointments between patients and doctors. Before you can log in and explore the system, you need to install its PHP and JavaScript dependencies, generate an application key, and run the database migrations. This guide walks you through every step, from checking your prerequisites to verifying the app is live in your browser.
+
+## Prerequisites
+
+Make sure you have the following installed before continuing:
+
+| Requirement | Minimum version | Notes |
+|-------------|----------------|-------|
+| PHP | 8.3 | Required by `laravel/framework` ^13.0 |
+| Composer | 2.x | PHP dependency manager |
+| Node.js | 18 LTS or higher | Required for Vite and Tailwind CSS |
+| npm | Bundled with Node.js | Used to install front-end assets |
+
+<Tip>
+  Run `php -v`, `composer -V`, and `node -v` to confirm the installed versions before proceeding.
+</Tip>
+
+## Installation
+
+MediCitas ships with a `composer run setup` shortcut that runs all setup steps in the correct order. Use the quick path if you want to get running fast, or follow the manual steps if you need more control over each stage.
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the MediCitas source code to your machine and navigate into the project directory:
+
+    ```bash
+    git clone <repository-url> medicitas
+    cd medicitas
+    ```
+  </Step>
+
+  <Step title="Run the setup script">
+    The `setup` script in `composer.json` installs all PHP and JavaScript dependencies, copies `.env.example` to `.env`, generates an application key, runs all database migrations, and builds the front-end assets in one command:
+
+    ```bash
+    composer run setup
+    ```
+
+    <Note>
+      `composer run setup` runs `npm install --ignore-scripts` and `npm run build` automatically. You do not need to run them separately after this step.
+    </Note>
+
+    If you prefer to run each step manually instead, expand the section below.
+
+    <AccordionGroup>
+      <Accordion title="Manual setup steps">
+        Run these commands in order if you want to control each stage yourself:
+
+        ```bash
+        # Install PHP dependencies
+        composer install
+
+        # Copy the environment file
+        cp .env.example .env
+
+        # Generate the application key
+        php artisan key:generate
+
+        # Run database migrations
+        php artisan migrate
+
+        # Install JavaScript dependencies
+        npm install
+
+        # Build front-end assets
+        npm run build
+        ```
+      </Accordion>
+    </AccordionGroup>
+  </Step>
+
+  <Step title="Configure your database">
+    MediCitas defaults to SQLite, which requires no external database server and is ready to use after migrations run. If you want to use MySQL instead, open your `.env` file and replace the database block:
+
+    <CodeGroup>
+
+    ```env SQLite (default)
+    DB_CONNECTION=sqlite
+    ```
+
+    ```env MySQL
+    DB_CONNECTION=mysql
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=medicitas
+    DB_USERNAME=root
+    DB_PASSWORD=your_password
+    ```
+
+    </CodeGroup>
+
+    For MySQL, create the database first and then re-run migrations:
+
+    ```bash
+    php artisan migrate
+    ```
+
+    <Warning>
+      If you switch from SQLite to MySQL after the initial setup, run `php artisan migrate:fresh` to rebuild the schema in the new database. This will erase any existing data.
+    </Warning>
+  </Step>
+
+  <Step title="Start the development server">
+    The `dev` script starts the Laravel application server, queue listener, log watcher (Pail), and the Vite dev server together using `concurrently`:
+
+    ```bash
+    composer run dev
+    ```
+
+    You will see four colour-coded output streams labelled `server`, `queue`, `logs`, and `vite`. The application will be available at `http://localhost:8000`.
+
+    <Tip>
+      Keep this terminal window open while working. All four processes run in parallel and will shut down together when you press `Ctrl+C`.
+    </Tip>
+  </Step>
+
+  <Step title="Verify the application is running">
+    Open `http://localhost:8000` in your browser. You should see the MediCitas login page.
+
+    If you have created demo accounts (see below), you can log in to confirm the system is working.
+  </Step>
+</Steps>
+
+## Creating demo accounts
+
+The default database seeder does not create patient or doctor records. To explore the system, create demo accounts manually using `php artisan tinker`:
+
+```bash
+php artisan tinker
+```
+
+```php
+// Create a demo doctor
+App\Models\Medico::create([
+    'nombre'           => 'Dra. Laura Gómez',
+    'email'            => 'laura@email.com',
+    'password'         => bcrypt('123456'),
+    'especialidad'     => 'Medicina General',
+    'telefono'         => '3109876543',
+    'numero_licencia'  => 'MED-00123',
+]);
+
+// Create a demo patient
+App\Models\Paciente::create([
+    'nombre'           => 'Carlos Pérez',
+    'email'            => 'carlos@email.com',
+    'password'         => bcrypt('123456'),
+    'telefono'         => '3001234567',
+    'fecha_nacimiento' => '1990-01-01',
+    'sexo'             => 'masculino',
+    'direccion'        => 'Calle 10 # 5-20',
+]);
+```
+
+Once created, use these credentials to log in:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Doctor | `laura@email.com` | `123456` |
+| Patient | `carlos@email.com` | `123456` |
+
+<Note>
+  These credentials are for development and demo purposes only. Do not use them in a production environment.
+</Note>
+
+## What's next?
+
+Once the app is running, configure your environment variables for production or a specific database:
+
+<Card title="Configure MediCitas for your environment" icon="sliders" href="/configuration">
+  Set the application key, database connection, session driver, and other environment variables.
+</Card>

@@ -1,0 +1,147 @@
+---
+title: "Appointments: create, edit, and cancel in MediCitas"
+description: "How MediCitas appointments are created, validated, edited, and cancelled — covering role-specific fields, validation rules, and the three lifecycle states."
+---
+
+Every interaction between a patient and a doctor in MediCitas is represented as an appointment (`cita`). Appointments move through a defined lifecycle from the moment they are created until they are either completed or cancelled. Understanding this lifecycle — and the rules that govern each transition — is essential for both patients and doctors using the system.
+
+## Appointment states
+
+Each appointment carries an `estado` field that reflects its current lifecycle stage.
+
+| State | Spanish label | Meaning |
+|---|---|---|
+| `programada` | Scheduled | The appointment is confirmed and upcoming. Editing and cancellation are allowed. |
+| `cancelada` | Cancelled | Either the patient or the doctor cancelled the appointment. No further changes are permitted. |
+| `completada` | Completed | The appointment took place. No further changes are permitted. |
+
+<Note>
+  Appointments are never hard-deleted. MediCitas uses `SoftDeletes` on the `Cita` model, so cancelled or removed records remain in the database and can be recovered by an administrator.
+</Note>
+
+## Creating an appointment
+
+Any authenticated user can create an appointment. The form presented at `GET /citas/create` adapts to your role: patients choose a doctor, and doctors choose a patient.
+
+<Steps>
+  <Step title="Open the create form">
+    Navigate to `/citas/create`. The form loads a list of all available doctors (if you are a patient) or all registered patients (if you are a doctor).
+  </Step>
+  <Step title="Fill in the appointment details">
+    Complete all required fields. See the field reference below for validation rules.
+  </Step>
+  <Step title="Submit the form">
+    Submit via `POST /citas`. On success you are redirected to your appointment list with a confirmation message. The new appointment is created in the `programada` state with your user ID pre-filled on your side of the relationship.
+  </Step>
+</Steps>
+
+### Field reference
+
+<Tabs>
+  <Tab title="Patient creating an appointment">
+    | Field | Required | Validation rules | Default |
+    |---|---|---|---|
+    | `fecha` | Yes | Date format, must be today or a future date | — |
+    | `hora` | Yes | Time format | — |
+    | `motivo` | Yes | String, maximum 500 characters | — |
+    | `duracion_minutos` | No | Integer, 15–180 | `30` |
+    | `medico_id` | Yes | Must exist in the `medicos` table | — |
+
+    Your `paciente_id` is set automatically from your session. You do not select yourself.
+  </Tab>
+  <Tab title="Doctor creating an appointment">
+    | Field | Required | Validation rules | Default |
+    |---|---|---|---|
+    | `fecha` | Yes | Date format, must be today or a future date | — |
+    | `hora` | Yes | Time format | — |
+    | `motivo` | Yes | String, maximum 500 characters | — |
+    | `duracion_minutos` | No | Integer, 15–180 | `30` |
+    | `paciente_id` | Yes | Must exist in the `pacientes` table | — |
+
+    Your `medico_id` is set automatically from your session. You do not select yourself.
+  </Tab>
+</Tabs>
+
+<Warning>
+  The `fecha` field is validated with `after_or_equal:today`. Submitting a past date — even yesterday — will fail validation. Plan appointments for today or any future date.
+</Warning>
+
+<Tip>
+  If you do not set `duracion_minutos`, the appointment defaults to 30 minutes. Set it explicitly if you need a shorter (minimum 15 min) or longer (maximum 180 min) slot.
+</Tip>
+
+## Viewing appointments
+
+Navigate to `GET /citas` to see your full appointment list. Appointments are sorted by `fecha` ascending, then `hora` ascending — earliest appointments appear first.
+
+<Tabs>
+  <Tab title="Patient view">
+    Patients see all their own appointments with the attending doctor's name loaded via the `medico` relationship. The list includes appointments in all states: scheduled, cancelled, and completed.
+  </Tab>
+  <Tab title="Doctor view">
+    Doctors see all their own appointments with the patient's name loaded via the `paciente` relationship. The same sort order and state filtering applies.
+  </Tab>
+</Tabs>
+
+## Editing an appointment
+
+You can edit an appointment at `GET /citas/{id}/edit` followed by `PUT /citas/{id}`.
+
+**Two conditions must both be true to edit an appointment:**
+
+1. The appointment's `estado` must be `programada`.
+2. The appointment must belong to you (your `paciente_id` or `medico_id` must match).
+
+If either condition fails, access is denied:
+
+- Wrong owner → HTTP 403
+- State is not `programada` → redirect to appointment list with an error message
+
+### Editable fields
+
+Only the scheduling fields can be updated. The patient–doctor relationship cannot be changed after creation.
+
+| Field | Required | Validation rules | Default if omitted |
+|---|---|---|---|
+| `fecha` | Yes | Date format, must be today or a future date | — |
+| `hora` | Yes | Time format | — |
+| `motivo` | Yes | String, maximum 500 characters | — |
+| `duracion_minutos` | No | Integer, 15–180 | `30` |
+
+<Note>
+  `paciente_id` and `medico_id` are not part of the update payload. The parties on an appointment are fixed at creation time.
+</Note>
+
+## Cancelling an appointment
+
+Send `PATCH /citas/{id}/cancelar` to cancel a scheduled appointment. Cancellation is a state change, not a deletion.
+
+**Conditions required to cancel:**
+
+1. The appointment's `estado` must be `programada`.
+2. The appointment must belong to you.
+
+```text
+PATCH /citas/{id}/cancelar
+```
+
+On success, `estado` is updated to `cancelada` and you are redirected to the appointment list. The record is preserved in the database.
+
+<Warning>
+  Cancellation cannot be undone through the UI. Once an appointment is marked `cancelada`, its state is final. Contact your administrator if you need to restore a cancelled appointment.
+</Warning>
+
+## Route reference
+
+| Method | URL | Action | Auth required |
+|---|---|---|---|
+| `GET` | `/citas` | List your appointments | Yes |
+| `GET` | `/citas/create` | Show create form | Yes |
+| `POST` | `/citas` | Create a new appointment | Yes |
+| `GET` | `/citas/{id}/edit` | Show edit form | Yes (owner, `programada` only) |
+| `PUT` | `/citas/{id}` | Save edits | Yes (owner, `programada` only) |
+| `PATCH` | `/citas/{id}/cancelar` | Cancel appointment | Yes (owner, `programada` only) |
+
+<Note>
+  The `DELETE /citas/{id}` route is excluded from the resource controller. Appointments cannot be destroyed through the API — only cancelled.
+</Note>

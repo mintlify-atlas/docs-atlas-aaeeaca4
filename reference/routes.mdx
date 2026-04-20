@@ -1,0 +1,84 @@
+---
+title: "Web routes: all MediCitas HTTP endpoints reference"
+description: "Every HTTP route in MediCitas — public login endpoints and authenticated appointment routes with middleware, controller actions, and named route reference."
+---
+
+MediCitas exposes two groups of web routes defined in `routes/web.php`. The first group is public and restricted to unauthenticated visitors via the `guest:paciente,medico` middleware; it handles the login UI and authentication. The second group is protected by `auth:paciente,medico`, which requires the request to carry an active session for either guard before granting access to the dashboard, logout, and all appointment management endpoints. The `citas` resource is registered with `->except(['destroy'])`, so no hard-delete route exists — cancellation is handled by a dedicated PATCH endpoint instead.
+
+## Public routes
+
+These routes are only accessible when the visitor is **not** authenticated. Laravel's `guest` middleware redirects already-authenticated users away before the controller is reached.
+
+| Method | Path | Middleware | Controller action | Description |
+|--------|------|------------|-------------------|-------------|
+| `GET` | `/` | — | Closure → `redirect()->route('login.form')` | Redirects root URL to `/login` |
+| `GET` | `/login` | `guest:paciente,medico` | `AuthController@showLogin` | Renders the login form |
+| `POST` | `/login` | `guest:paciente,medico` | `AuthController@login` | Validates credentials and starts a session |
+
+## Protected routes
+
+All routes in this group require an authenticated session under either the `paciente` or `medico` guard. Unauthenticated requests are redirected to the login page.
+
+| Method | Path | Middleware | Controller action | Description |
+|--------|------|------------|-------------------|-------------|
+| `GET` | `/dashboard` | `auth:paciente,medico` | `AuthController@dashboard` | Role-aware dashboard view |
+| `POST` | `/logout` | `auth:paciente,medico` | `AuthController@logout` | Terminates session for both guards |
+| `GET` | `/citas` | `auth:paciente,medico` | `CitaController@index` | Lists appointments for the authenticated user |
+| `GET` | `/citas/create` | `auth:paciente,medico` | `CitaController@create` | Renders the new appointment form |
+| `POST` | `/citas` | `auth:paciente,medico` | `CitaController@store` | Persists a new appointment |
+| `GET` | `/citas/{cita}` | `auth:paciente,medico` | `CitaController@show` | Appointment detail — route is registered but the `show()` method is commented out in the controller |
+| `GET` | `/citas/{cita}/edit` | `auth:paciente,medico` | `CitaController@edit` | Renders the edit form for a scheduled appointment |
+| `PUT` / `PATCH` | `/citas/{cita}` | `auth:paciente,medico` | `CitaController@update` | Applies changes to an existing appointment |
+| `PATCH` | `/citas/{cita}/cancelar` | `auth:paciente,medico` | `CitaController@cancelar` | Sets appointment status to `cancelada` |
+
+<Note>
+The `citas` resource is registered with `->except(['destroy'])`. There is no `DELETE /citas/{cita}` route. The `Cita` model uses `SoftDeletes`, but hard deletion is intentionally unavailable through the web interface. Cancellation via `PATCH /citas/{cita}/cancelar` is the only way to close an appointment from the UI.
+</Note>
+
+## Route names
+
+Named routes let you generate URLs and redirects without hard-coding paths. The table below maps each name to its path.
+
+| Route name | Method | Path |
+|------------|--------|------|
+| `login.form` | `GET` | `/login` |
+| `login` | `POST` | `/login` |
+| `dashboard` | `GET` | `/dashboard` |
+| `logout` | `POST` | `/logout` |
+| `citas.index` | `GET` | `/citas` |
+| `citas.create` | `GET` | `/citas/create` |
+| `citas.store` | `POST` | `/citas` |
+| `citas.show` | `GET` | `/citas/{cita}` |
+| `citas.edit` | `GET` | `/citas/{cita}/edit` |
+| `citas.update` | `PUT`/`PATCH` | `/citas/{cita}` |
+| `citas.cancelar` | `PATCH` | `/citas/{cita}/cancelar` |
+
+## Route registration
+
+```php
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CitaController;
+
+// Redirect root to login
+Route::get('/', function () {
+    return redirect()->route('login.form');
+});
+
+// Public routes (unauthenticated only)
+Route::middleware('guest:paciente,medico')->group(function () {
+    Route::get('/login', [AuthController::class, 'showLogin'])->name('login.form');
+    Route::post('/login', [AuthController::class, 'login'])->name('login');
+});
+
+// Protected routes (must be authenticated as paciente or medico)
+Route::middleware('auth:paciente,medico')->group(function () {
+    Route::get('/dashboard', [AuthController::class, 'dashboard'])->name('dashboard');
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
+    Route::resource('citas', CitaController::class)->except(['destroy']);
+    Route::patch('/citas/{cita}/cancelar', [CitaController::class, 'cancelar'])->name('citas.cancelar');
+});
+```

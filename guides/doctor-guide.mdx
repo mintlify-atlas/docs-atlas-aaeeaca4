@@ -1,0 +1,182 @@
+---
+title: "Doctor guide: view and manage your appointment schedule"
+description: "Step-by-step walkthrough for doctors in MediCitas — logging in, viewing your schedule, creating appointments for patients, and managing appointment status."
+---
+
+MediCitas gives doctors a dedicated view of their schedule and the tools to manage appointments on behalf of patients. After logging in as a doctor, you can see today's patient list on your dashboard, browse your full appointment history, create appointments for any registered patient, and update appointment status as care progresses. This guide covers every step of that workflow.
+
+## Test credentials
+
+Use these credentials to explore the system with sample data:
+
+| Field        | Value                  |
+| ------------ | ---------------------- |
+| Email        | `laura@email.com`      |
+| Password     | `123456`               |
+| Role         | Médico                 |
+| Specialty    | Medicina General       |
+
+The test account belongs to **Dra. Laura Gómez**, a doctor already registered in the system with existing appointments.
+
+---
+
+## Logging in
+
+<Steps>
+  <Step title="Go to the login page">
+    Open your browser and navigate to `/login`. You will see a form with fields for email, password, and account type.
+  </Step>
+  <Step title="Enter your credentials">
+    Type your email address and password into the corresponding fields.
+  </Step>
+  <Step title="Select your account type">
+    Choose **Médico** from the account type selector. This is required — the system uses separate authentication guards for doctors and patients. Selecting **Paciente** with your doctor credentials will fail.
+  </Step>
+  <Step title="Submit">
+    Click the login button. On success, you are redirected to your dashboard.
+  </Step>
+</Steps>
+
+<Note>
+  If you see "Las credenciales no son correctas," verify that you selected **Médico** as the account type.
+</Note>
+
+---
+
+## The dashboard
+
+After logging in, you land on `/dashboard`. The dashboard shows an overview of your upcoming appointments. It is a quick operational view, not your complete history.
+
+Use the navigation to go to `/citas` for your full appointment list.
+
+---
+
+## Viewing all appointments
+
+Navigate to `/citas` to see your complete appointment list. Unlike the patient view, your list shows **patient names** alongside each appointment, so you can quickly identify who you are seeing. Appointments are sorted by date and time.
+
+Each row displays:
+
+- Date and time
+- Patient's name
+- Reason for the visit (motivo)
+- Duration
+- Current status (`programada`, `cancelada`, or `completada`)
+- Available actions
+
+---
+
+## Appointment statuses
+
+| Status        | Meaning                                   | Can edit? | Can cancel? |
+| ------------- | ----------------------------------------- | --------- | ----------- |
+| `programada`  | Scheduled — active and upcoming           | Yes       | Yes         |
+| `cancelada`   | Cancelled — no further changes available  | No        | No          |
+| `completada`  | Marked as completed                       | No        | No          |
+
+<Warning>
+  Only appointments with status `programada` can be edited or cancelled. Once an appointment is cancelled or completed, it is locked.
+</Warning>
+
+---
+
+## Creating an appointment for a patient
+
+As a doctor, you can book appointments on behalf of any registered patient.
+
+<Steps>
+  <Step title="Open the booking form">
+    Navigate to `/citas/create` or click the "Nueva cita" button on your appointments page.
+  </Step>
+  <Step title="Select the patient">
+    Choose the patient from the dropdown list. All registered patients appear here. You are required to select a patient — this field is mandatory for doctor-created appointments.
+  </Step>
+  <Step title="Set the date">
+    Pick a date. The date must be today or in the future.
+  </Step>
+  <Step title="Set the time">
+    Enter the appointment time. The system enforces that you have no other appointment at the same date and time — double-booking is blocked.
+  </Step>
+  <Step title="Enter the reason">
+    Fill in the **motivo** field describing the purpose of the visit. Maximum 500 characters.
+  </Step>
+  <Step title="Set duration (optional)">
+    Optionally specify the expected duration in minutes. Accepted values: 15 to 180. Leaving this blank defaults to **30 minutes**.
+  </Step>
+  <Step title="Submit">
+    Click the save button. The appointment is created with status `programada` and you are returned to the appointments list.
+  </Step>
+</Steps>
+
+<Tip>
+  When you create an appointment as a doctor, your ID is automatically recorded as the assigned doctor — you cannot create an appointment that belongs to another doctor.
+</Tip>
+
+---
+
+## Editing appointment details
+
+You can update the date, time, motivo, or duration of any `programada` appointment that belongs to you.
+
+<Steps>
+  <Step title="Find the appointment">
+    Go to `/citas` and locate the appointment you want to change.
+  </Step>
+  <Step title="Click Edit">
+    Click the edit button. If the appointment is `cancelada` or `completada`, editing is blocked and you will be redirected to the list with an error message.
+  </Step>
+  <Step title="Update the fields">
+    Modify any of the editable fields: date, time, motivo, or duration. Validation rules are the same as on creation — the date must be today or later and duration must be between 15 and 180 minutes.
+  </Step>
+  <Step title="Save changes">
+    Submit the form. You are returned to the appointments list with a confirmation message.
+  </Step>
+</Steps>
+
+<Warning>
+  You can only edit appointments where you are the assigned doctor. Attempting to access another doctor's appointment returns a 403 error.
+</Warning>
+
+---
+
+## Cancelling an appointment
+
+<Steps>
+  <Step title="Find the appointment">
+    Go to `/citas` and locate the `programada` appointment you want to cancel.
+  </Step>
+  <Step title="Click Cancel">
+    Click the cancel button next to the appointment.
+  </Step>
+  <Step title="Confirm the outcome">
+    The appointment status changes immediately to `cancelada`. You are returned to the list with a confirmation message. This action cannot be undone.
+  </Step>
+</Steps>
+
+<Note>
+  Cancelling is irreversible. If you need to reschedule, create a new appointment for the patient after cancelling the existing one.
+</Note>
+
+---
+
+## Completing an appointment
+
+<Warning>
+  The current version of MediCitas does not expose a dedicated "complete" button in the interface. The `completada` status exists in the data model and is referenced in the appointment list view, but no controller action is wired up to transition an appointment to this state from the UI. Contact your system administrator if you need appointments to be marked as completed.
+</Warning>
+
+---
+
+## Viewing appointment history
+
+Your full appointment history — including `programada`, `cancelada`, and `completada` records — is available at `/citas`. All your appointments are listed there regardless of date, ordered by date and time. There is no separate history page.
+
+<Tip>
+  Use the status column in the `/citas` list to quickly filter mentally by outcome — all past visits remain visible and are never deleted.
+</Tip>
+
+---
+
+## Logging out
+
+Use the logout button in the navigation to end your session. The system invalidates your session, clears your authentication token, and redirects you to `/login`. Both doctor and patient guards are cleared on logout.
